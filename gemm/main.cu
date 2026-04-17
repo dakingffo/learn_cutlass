@@ -198,7 +198,7 @@ __global__ void gemm_kernel(
     }  
 
     // C: reg -> shm -> gmem
-    Tensor sC = make_tensor(sA(_, _, shared_read).data(), SmemLayoutC{});
+    Tensor sC = make_tensor(make_smem_ptr(shm_data), SmemLayoutC{});
 
     R2SCopyC r2s_copy_c;
     auto this_r2s_copy_c = r2s_copy_c.get_slice(idx);
