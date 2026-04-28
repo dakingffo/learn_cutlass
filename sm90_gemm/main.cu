@@ -12,6 +12,10 @@
 #include "../utility/timer.hpp"
 #include "../utility/error_guard.hpp"
 
+#if defined(__CUDA_ARCH__)
+  static_assert(__CUDA_ARCH__ >= 900);
+#endif
+
 namespace traits {
     using namespace cute;
     using namespace cutlass;
