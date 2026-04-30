@@ -9,7 +9,6 @@
 #include <cublas_v2.h>
 
 #include "../utility/timer.hpp"
-#include "../utility/error_guard.hpp"
 
 namespace traits {
     using namespace cute;
@@ -19,7 +18,7 @@ namespace traits {
     constexpr int TileN = 128;
     constexpr int TileK = 32;
     constexpr int Stage = 5;
-        
+
     using type           = half_t; 
     using pointer        = type*; 
     using const_pointer  = const type*; 
@@ -63,6 +62,18 @@ namespace traits {
         MMA{}
     ));
 
+    using R2SCopyAtomC    = Copy_Atom<UniversalCopy<int>, type>;
+    using R2SCopyC        = decltype(make_tiled_copy_C(
+        R2SCopyAtomC{},
+        MMA{}
+    ));
+    using S2GCopyAtomC    = Copy_Atom<UniversalCopy<uint128_t>, type>;
+    using S2GCopyC        = decltype(make_tiled_copy(
+        S2GCopyAtomC{},
+        make_layout(Shape<_32, _4>{}, Stride<_4, _1>{}),
+        make_layout(Shape<_1, _8>{})
+    ));
+
     using SmemLayoutA = decltype(tile_to_shape(
         composition(
             Swizzle<2, 3, 3>{},
@@ -76,6 +87,14 @@ namespace traits {
             make_layout(Shape<_8, Int<TileK>>{}, Stride<Int<TileK>, _1>{})
         ),
         Shape<Int<TileN>, Int<TileK>, Int<Stage>>{}
+    ));
+    static_assert((TileM + TileN) * (TileK + Stage) >= ExecuteM * ExecuteN * 2);
+    using SmemLayoutC = decltype(tile_to_shape(
+        composition(
+            Swizzle<2, 3, 3>{}, 
+            make_layout(Shape<Int<ExecuteM>, Int<ExecuteN>>{}, Stride<Int<ExecuteN>, _1>{})
+        ),
+        Shape<Int<ExecuteM>, Int<ExecuteN>, _2>{}
     ));
 }
 
@@ -177,7 +196,32 @@ __global__ void gemm_kernel(
         }  
     }  
 
-    copy(rC, this_mma.partition_C(gC));
+    // C: reg -> shm -> gmem
+    Tensor sC = make_tensor(make_smem_ptr(shm_data), SmemLayoutC{});
+
+    R2SCopyC r2s_copy_c;
+    auto this_r2s_copy_c = r2s_copy_c.get_slice(idx);
+    auto r2sC_srcx       = group_modes<1, 3>(this_r2s_copy_c.retile_S(rC));     // (num_copy, CPY_M, CPY_N) -> (num_copy, CPY_MN)
+    auto r2sC_dst        = this_r2s_copy_c.partition_D(sC);                     // (num_copy, 1, 1, pipe)
+    
+    S2GCopyC s2g_copy_c;
+    auto this_s2g_copy_c = s2g_copy_c.get_thread_slice(idx);
+    auto s2gC_src        = this_s2g_copy_c.partition_S(sC);                     // (num_copy, 1, 1, pipe)
+    auto s2gC_dstx       = group_modes<1, 3>(this_s2g_copy_c.partition_D(gC));  // (num_copy, CPY_MN) -> (num_copy, CPY_M, CPY_N)
+
+    #pragma unroll
+    for (int i = 0, step = size<3>(r2sC_dst); i < size<1>(r2sC_srcx); i += step) {
+        #pragma unroll
+        for (int j = 0; j < step; ++j) /* reg -> shm */ {
+            copy(r2s_copy_c, r2sC_srcx(_, i + j), r2sC_dst(_, 0, 0, j));
+        }
+        __syncthreads();
+        #pragma unroll
+        for (int j = 0; j < step; ++j) /* shm -> gmem */ {
+            copy(s2g_copy_c, s2gC_src(_, 0, 0, j), s2gC_dstx(_, i + j));
+        }
+        __syncthreads();
+    }
 }
 
 int main() {
@@ -207,7 +251,7 @@ int main() {
     std::cout << "Tile sizes: M=" << TileM << ", N=" << TileN << ", K=" << TileK << std::endl;
 
     int shm_size = (cosize(SmemLayoutA{}) + cosize(SmemLayoutB{})) * sizeof(type);
-    ERROR_GUARD(cudaFuncSetAttribute(
+    CUTE_CHECK_ERROR(cudaFuncSetAttribute(
         gemm_kernel, 
         cudaFuncAttributeMaxDynamicSharedMemorySize, 
         shm_size
@@ -220,7 +264,7 @@ int main() {
         m, n, k
     );
 
-    ERROR_GUARD(cudaDeviceSynchronize());
+    CUTE_CHECK_ERROR(cudaDeviceSynchronize());
 
     thrust::host_vector<type> hC = dC;
 

@@ -2,8 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <numeric>
-
-#include "error_guard.hpp"
+#include <cute/tensor.hpp>
 
 namespace utility {
     template <std::size_t N>
@@ -20,11 +19,11 @@ namespace utility {
         _timer(const char* name) {
             std::cout << "Timing: " << name << " for " << N << " iterations\n";
             for (std::size_t i = 0; i < N; ++i) {
-                ERROR_GUARD(cudaEventCreate(&start[i]));
-                ERROR_GUARD(cudaEventCreate(&stop[i]));
+                CUTE_CHECK_ERROR(cudaEventCreate(&start[i]));
+                CUTE_CHECK_ERROR(cudaEventCreate(&stop[i]));
             }
             if constexpr (M == 0) {
-                ERROR_GUARD(cudaEventRecord(start[0]));
+                CUTE_CHECK_ERROR(cudaEventRecord(start[0]));
             }
         }
 
@@ -39,17 +38,17 @@ namespace utility {
         void operator++() {
             if (index < M) {
                 if (++index == M) {
-                    ERROR_GUARD(cudaEventRecord(start[0]));
+                    CUTE_CHECK_ERROR(cudaEventRecord(start[0]));
                 }
                 return;
             }
-            ERROR_GUARD(cudaEventRecord(stop[index - M]));
-            ERROR_GUARD(cudaEventSynchronize(stop[index - M]));
-            ERROR_GUARD(cudaEventElapsedTime(&elapsed[index - M], start[index - M], stop[index - M]));
+            CUTE_CHECK_ERROR(cudaEventRecord(stop[index - M]));
+            CUTE_CHECK_ERROR(cudaEventSynchronize(stop[index - M]));
+            CUTE_CHECK_ERROR(cudaEventElapsedTime(&elapsed[index - M], start[index - M], stop[index - M]));
             std::cout << "\tElapsed time for iteration " << index - M << ": ";
             std::cout << elapsed[index - M] << " ms\n";
             if (++index < N + M) {
-                ERROR_GUARD(cudaEventRecord(start[index - M]));
+                CUTE_CHECK_ERROR(cudaEventRecord(start[index - M]));
             }
         }
 

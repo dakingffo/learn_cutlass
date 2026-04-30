@@ -8,7 +8,6 @@
 #include <cute/tensor.hpp>
 
 #include "../utility/timer.hpp"
-#include "../utility/error_guard.hpp"
 
 constexpr int TileM = 32;
 constexpr int TileN = 32;
@@ -87,7 +86,7 @@ int main() {
         m, n
     );
 
-    ERROR_GUARD(cudaDeviceSynchronize());
+    CUTE_CHECK_ERROR(cudaDeviceSynchronize());
 
     if (hD == dD) {
         std::cout << "SUCCESS: GPU results match CPU reference!" << std::endl;

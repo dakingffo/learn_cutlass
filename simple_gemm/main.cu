@@ -8,7 +8,6 @@
 #include <cute/tensor.hpp>
 
 #include "../utility/timer.hpp"
-#include "../utility/error_guard.hpp"
 
 constexpr int TileM = 128;
 constexpr int TileN = 128;
@@ -93,7 +92,7 @@ int main() {
         m, n, k
     );
 
-    ERROR_GUARD(cudaDeviceSynchronize());
+    CUTE_CHECK_ERROR(cudaDeviceSynchronize());
 
     thrust::host_vector<T> hC = dC;
 
