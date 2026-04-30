@@ -26,29 +26,30 @@ namespace traits {
 
     constexpr int TileM = 128;
     constexpr int TileN = 128;
-    constexpr int TileK = 32;
+    constexpr int TileK = 64;
     constexpr int Stage = 5;
 
     using type           = half_t; 
     using pointer        = type*; 
     using const_pointer  = const type*; 
-    using mma_op         = SM90_64x64x16_F16F16F16_SS<GMMA::Major::MN,GMMA::Major::MN>;
+    using mma_op         = SM90_64x64x16_F16F16F16_SS<GMMA::Major::K, GMMA::Major::K>;
     using mma_traits     = MMA_Traits<mma_op>;
     using mma_atom       = MMA_Atom<mma_traits>;
     using mma_atom_shape = typename mma_traits::Shape_MNK;
 
-    constexpr int ThreadsM = 2;
-    constexpr int ThreadsN = 2;
-    constexpr int ThreadsK = 1;
+    constexpr int ThreadsM = 1;
+    constexpr int ThreadsN = 1;
+    constexpr int ThreadsK = 2;
     constexpr int ExecuteM = 1 * ThreadsM * get<0>(mma_atom_shape{});
-    constexpr int ExecuteN = 2 * ThreadsN * get<1>(mma_atom_shape{});
+    constexpr int ExecuteN = 1 * ThreadsN * get<1>(mma_atom_shape{});
     constexpr int ExecuteK = 1 * ThreadsK * get<2>(mma_atom_shape{});
 
     using ThreadsArray = decltype(make_layout(
         Shape<Int<ThreadsM>, Int<ThreadsN>, Int<ThreadsK>>{}
     ));
     using ExecuteTasks = Tile<Int<ExecuteM>, Int<ExecuteN>, Int<ExecuteK>>;
-    using MMA = decltype(make_tiled_mma(mma_atom{}, ThreadsArray{}, ExecuteTasks{}));
+    // using MMA = decltype(make_tiled_mma(mma_atom{}, ThreadsArray{}, ExecuteTasks{}));
+    using MMA = decltype(make_tiled_mma(mma_atom{}));
 
     using R2SCopyAtomC    = Copy_Atom<UniversalCopy<int>, type>;
     using R2SCopyC        = decltype(make_tiled_copy_C(
@@ -90,10 +91,11 @@ void gemm_kernel(
     traits::pointer       Cptr, 
     traits::const_pointer Aptr, 
     traits::const_pointer Bptr, 
-    CUTLASS_GRID_CONSTANT TMALoadA tma_load_a,
-    CUTLASS_GRID_CONSTANT TMALoadB tma_load_b,
+    CUTLASS_GRID_CONSTANT const TMALoadA tma_load_a,
+    CUTLASS_GRID_CONSTANT const TMALoadB tma_load_b,
     int m, int n, int k
 ) {
+#if defined(__CUDA_ARCH__)
     using namespace traits;
     extern __shared__ char shm_data[];
     auto& shared_storage = *reinterpret_cast<SharedStorage*>(shm_data);
@@ -123,7 +125,7 @@ void gemm_kernel(
     int k_tile_count = size<1>(tAgA);
 
     // Initialize Barriers
-    int warp_idx = cutlass::canonical_warp_idx_sync();
+    int warp_idx  = cutlass::canonical_warp_idx_sync();
     int is_leader = cute::elect_one_sync();
     uint64_t* producer_mbar = shared_storage.tma_barrier;
     uint64_t* consumer_mbar = shared_storage.mma_barrier;
@@ -174,7 +176,7 @@ void gemm_kernel(
 
         // MMAs to cover 1 K_TILE
         warpgroup_arrive();
-        cute::gemm(mma, tCrC, tCrA(_,_,_,pipe), tCrB(_,_,_,pipe), tCrC);     // (V,M) x (V,N) => (V,M,N)
+        cute::gemm(mma, tCrA(_,_,_,pipe), tCrB(_,_,_,pipe), tCrC);     // (V,M) x (V,N) => (V,M,N)
         warpgroup_commit_batch();
         warpgroup_wait<0>();
 
@@ -193,9 +195,9 @@ void gemm_kernel(
         --k_tile_count;
         ++ik;
     }
-
+    
     // C: reg -> shm -> gmem
-    Tensor sC = make_tensor(make_smem_ptr(shm_data), SmemLayoutC{});
+    Tensor sC = make_tensor(make_smem_ptr((type*)shm_data), SmemLayoutC{});
 
     R2SCopyC r2s_copy_c;
     auto this_r2s_copy_c = r2s_copy_c.get_slice(idx);
@@ -220,9 +222,10 @@ void gemm_kernel(
         }
         __syncthreads();
     }
+#endif 
 }
 
-__host__ auto setup_kernel(    
+auto setup_kernel(    
     traits::pointer       Cptr, 
     traits::const_pointer Aptr, 
     traits::const_pointer Bptr, 

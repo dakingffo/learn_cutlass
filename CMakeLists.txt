@@ -9,6 +9,7 @@ find_package(CUDAToolkit REQUIRED)
 find_package(NvidiaCutlass REQUIRED)
 find_package(CCCL REQUIRED)
 
+add_subdirectory(cutlass_example)
 add_subdirectory(layout)
 add_subdirectory(simple_copy)
 add_subdirectory(simple_gemm)
