@@ -28,7 +28,26 @@ void tensor() {
     print_layout(t4.layout());
 
     Tensor t5 = logical_divide(t0, Shape<_2, _2>{});
-    print_tensor(t5(make_coord(_, 1), make_coord(_, 1)));
-    print_tensor(local_tile(t0, Shape<_2, _2>{}, make_coord(1, 1)));
-    // print_layout(t5.layout());
+    print_tensor(t5);
+    if (t5(make_coord(_, 1), make_coord(_, 1)).layout() == 
+        local_tile(t0, Tile<_2, _2>{}, make_coord(1, 1)).layout()) {
+        print_tensor(t5(make_coord(_, 1), make_coord(_, 1)));
+        print_tensor(local_tile(t0, Tile<_2, _2>{}, make_coord(1, 1)));
+    }
+    else {
+        printf("Error: logical_divide does not match local_tile\n");
+    }
+    Tensor t6 = make_tensor_like(t5);
+    CUTE_STATIC_ASSERT_V(congruent(t6, t5), "Tensors should be congruent");
+    
+    Tensor t7 = tensor<0>(t5);
+    Tensor t8 = make_tensor(t5.data(), get<0>(t5.layout()));
+    CUTE_STATIC_ASSERT_V(congruent(t7, t8), "Tensors should be congruent");
+    print_tensor(t7);
+
+    Tensor t9 = make_tensor(t5.data(), select<0>(t5.layout()));
+    print_tensor(t9);
+
+    Tensor t10 = make_tensor(t5.data(), select<1, 0>(t5.layout()));
+    print_tensor(t10);
 }

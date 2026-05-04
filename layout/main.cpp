@@ -1,7 +1,7 @@
 #include "header.hpp"
 
 int main() {
-    // tensor();
-    composition();
+    tensor();
+    // composition();
     return 0;
 }
