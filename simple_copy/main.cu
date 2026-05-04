@@ -9,12 +9,13 @@
 
 #include "../utility/timer.hpp"
 
-constexpr int TileM = 32;
-constexpr int TileN = 32;
-constexpr int HalfN = 8;
-
 namespace traits {
     using namespace cute;
+
+    constexpr int TileM = 128;
+    constexpr int TileN = 128;
+    constexpr int HalfN = 8;
+
     using type            = half;
     using pointer         = type*;
     using const_pointer   = const type*;

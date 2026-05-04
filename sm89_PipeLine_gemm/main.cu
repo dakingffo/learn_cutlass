@@ -16,29 +16,31 @@ namespace traits {
 
     constexpr int TileM = 128;
     constexpr int TileN = 128;
-    constexpr int TileK = 32;
-    constexpr int Stage = 5;
+    constexpr int TileK = 64;
+    constexpr int Stage = 3;
 
     using type           = half_t; 
     using pointer        = type*; 
     using const_pointer  = const type*; 
+
     using mma_op         = SM80_16x8x16_F16F16F16F16_TN;
     using mma_traits     = MMA_Traits<mma_op>;
     using mma_atom       = MMA_Atom<mma_traits>;
     using mma_atom_shape = typename mma_traits::Shape_MNK;
 
-    constexpr int ThreadsM = 2;
-    constexpr int ThreadsN = 2;
-    constexpr int ThreadsK = 1;
-    constexpr int ExecuteM = 1 * ThreadsM * get<0>(mma_atom_shape{});
-    constexpr int ExecuteN = 2 * ThreadsN * get<1>(mma_atom_shape{});
-    constexpr int ExecuteK = 1 * ThreadsK * get<2>(mma_atom_shape{});
+    constexpr int EURepeatM = 2;
+    constexpr int EURepeatN = 2;
+    constexpr int EURepeatK = 1;
+    constexpr int PM = 1 * EURepeatM * get<0>(mma_atom_shape{});
+    constexpr int PN = 2 * EURepeatN * get<1>(mma_atom_shape{});
+    constexpr int PK = 1 * EURepeatK * get<2>(mma_atom_shape{});
+    static_assert((TileM + TileN) * (TileK + Stage) >= PM * PN * 2);
 
-    using ThreadsArray = decltype(make_layout(
-        Shape<Int<ThreadsM>, Int<ThreadsN>, Int<ThreadsK>>{}
+    using MMA = decltype(make_tiled_mma(
+        mma_atom{},
+        make_layout(Shape<Int<EURepeatM>, Int<EURepeatN>, Int<EURepeatK>>{}),
+        Tile<Int<PM>, Int<PN>, Int<PK>>{}
     ));
-    using ExecuteTasks = Tile<Int<ExecuteM>, Int<ExecuteN>, Int<ExecuteK>>;
-    using MMA = decltype(make_tiled_mma(mma_atom{}, ThreadsArray{}, ExecuteTasks{}));
 
     using g2s_copy_op     = SM80_CP_ASYNC_CACHEGLOBAL<uint128_t>;
     using g2s_copy_traits = Copy_Traits<g2s_copy_op>;
@@ -76,25 +78,24 @@ namespace traits {
 
     using SmemLayoutA = decltype(tile_to_shape(
         composition(
-            Swizzle<2, 3, 3>{},
+            Swizzle<3, 3, 3>{},
             make_layout(Shape<_8, Int<TileK>>{}, Stride<Int<TileK>, _1>{})
         ),
         Shape<Int<TileM>, Int<TileK>, Int<Stage>>{}
     ));
     using SmemLayoutB = decltype(tile_to_shape(
         composition(
-            Swizzle<2, 3, 3>{},
+            Swizzle<3, 3, 3>{},
             make_layout(Shape<_8, Int<TileK>>{}, Stride<Int<TileK>, _1>{})
         ),
         Shape<Int<TileN>, Int<TileK>, Int<Stage>>{}
     ));
-    static_assert((TileM + TileN) * (TileK + Stage) >= ExecuteM * ExecuteN * 2);
     using SmemLayoutC = decltype(tile_to_shape(
         composition(
-            Swizzle<2, 3, 3>{}, 
-            make_layout(Shape<Int<ExecuteM>, Int<ExecuteN>>{}, Stride<Int<ExecuteN>, _1>{})
+            Swizzle<3, 3, 3>{}, 
+            make_layout(Shape<Int<PM>, Int<PN>>{}, Stride<Int<PN>, _1>{})
         ),
-        Shape<Int<ExecuteM>, Int<ExecuteN>, _2>{}
+        Shape<Int<PM>, Int<PN>, _2>{}
     ));
 }
 
@@ -118,9 +119,9 @@ __global__ void gemm_kernel(
     Tensor B = make_tensor(make_gmem_ptr((const_pointer)Bptr), make_shape(n, k), make_stride(k, Int<1>{}));  // (N, K)
     Tensor C = make_tensor(make_gmem_ptr((pointer)Cptr), make_shape(m, n), make_stride(n, Int<1>{}));        // (M, N)
 
-    Tensor gA = local_tile(A, make_tile(Int<TileM>{}, Int<TileK>{}), make_coord(iy, _));   // (TileM, TileK, num_tile_K)
-    Tensor gB = local_tile(B, make_tile(Int<TileN>{}, Int<TileK>{}), make_coord(ix, _));   // (TileN, TileK, num_tile_k)
-    Tensor gC = local_tile(C, make_tile(Int<TileM>{}, Int<TileN>{}), make_coord(iy, ix));  // (TileM, TileN)
+    Tensor gA = local_tile(A, make_tile(Int<TileM>{}, Int<TileK>{}), make_coord(ix, _));   // (TileM, TileK, num_tile_K)
+    Tensor gB = local_tile(B, make_tile(Int<TileN>{}, Int<TileK>{}), make_coord(iy, _));   // (TileN, TileK, num_tile_k)
+    Tensor gC = local_tile(C, make_tile(Int<TileM>{}, Int<TileN>{}), make_coord(ix, iy));  // (TileM, TileN)
 
     Tensor sA = make_tensor(make_smem_ptr(Ashm), SmemLayoutA{});  // (TileM, TileK, Stage)
     Tensor sB = make_tensor(make_smem_ptr(Bshm), SmemLayoutB{});  // (TileN, TileK, Stage)
@@ -244,7 +245,7 @@ int main() {
     thrust::device_vector<type> dC(m * n, type(0));
 
     dim3 block(cute::size(MMA{}));
-    dim3 grid((n + TileN - 1) / TileN, (m + TileM - 1) / TileM);
+    dim3 grid(ceil_div(m, TileM), ceil_div(n, TileN));
 
     std::cout << "Launching GEMM kernel with grid: (" << grid.x << ", " << grid.y
               << "), block: " << block.x << std::endl;
