@@ -6,10 +6,8 @@
 #include <thrust/random.h>
 #include <cuda_runtime.h>
 #include <cute/tensor.hpp>
-#include <cutlass/arch/barrier.h>
+#include <cutlass/arch/barrier.h>      // ClusterTransactionBarrier — CUTLASS TMA barrier wrapper
 #include <cutlass/device_kernel.h>
-#include <cutlass/pipeline/sm90_pipeline.hpp>
-#include <cutlass/arch/mma_sm90.h>
 #include <cutlass/util/helper_cuda.hpp>
 
 #include "../utility/debug_step.cuh"
@@ -22,49 +20,65 @@
 namespace traits {
     using namespace cute;
 
-    constexpr int TileM = 128;
-    constexpr int TileN = 128;
+    constexpr int TileM          = 128;
+    constexpr int TileN          = 128;
 
     using type            = cute::half_t;
     using pointer         = type*;
     using const_pointer   = const type*;
     using SmemLayout      = decltype(tile_to_shape(GMMA::Layout_K_SW128_Atom<type>{}, Shape<Int<TileM>, Int<TileN>>{}));
 
+    constexpr int TMATransaction = sizeof(type) * cosize(SmemLayout{});
+
     struct SharedStorage {
         alignas(128) ArrayEngine<type, cosize_v<SmemLayout>> S;
         uint64_t tma_barrier;
     };
+
+    using Barrier = cutlass::arch::ClusterTransactionBarrier;
 }
 
-template <typename TMALoad>
+template <typename TMALoad, typename TMAStore>
 __global__ void copy_kernel(
     CUTLASS_GRID_CONSTANT const TMALoad tma_load,
-    traits::const_pointer Sptr, traits::pointer Dptr,
+    CUTLASS_GRID_CONSTANT const TMAStore tma_store,
     int m, int n
 ) {
     using namespace traits;
     __shared__ SharedStorage shared_storage;
 
-    Tensor Shm = make_tensor(make_smem_ptr(shared_storage.S.begin()), SmemLayout{});
-    Tensor mS  = tma_load.get_tma_tensor(make_shape(m, n));
-    Tensor gS  = local_tile(mS, Tile<Int<TileM>, Int<TileN>>{}, make_coord(blockIdx.x, blockIdx.y));
-    auto [tSgS, tSsS] = tma_partition(tma_load, Int<0>{}, Layout<_1>{}, group_modes<0,2>(Shm), group_modes<0,2>(gS));
-    //Tensor D   = make_tensor(make_gmem_ptr(Dptr), make_shape(m, n), make_stride(n, Int<1>{}));
+    int warp_idx       = cutlass::canonical_warp_idx_sync();
+    int lane_predicate = cute::elect_one_sync();
 
-    int warp_idx              = cutlass::canonical_warp_idx_sync();
-    int lane_predicate        = cute::elect_one_sync();
-    int tma_transaction_bytes = sizeof(type) * TileM * TileN;
-    using ProducerBarType = cutlass::arch::ClusterTransactionBarrier;  // TMA
+    Tensor Shm      = make_tensor(make_smem_ptr(shared_storage.S.begin()), SmemLayout{});
 
     if (warp_idx == 0 && lane_predicate) {
-        ProducerBarType::init(&shared_storage.tma_barrier, 1);
+        Tensor gScoord  = tma_load.get_tma_tensor(make_shape(m, n));
+        Tensor cScoord  = local_tile(gScoord, Tile<Int<TileM>, Int<TileN>>{}, make_coord(blockIdx.x, blockIdx.y));
+        auto cta_tma_load = tma_load.get_slice(0);
+        Barrier::init(&shared_storage.tma_barrier, /*arrive_count=*/1);
+        Barrier::arrive_and_expect_tx(&shared_storage.tma_barrier, TMATransaction);
+        copy(
+            tma_load.with(shared_storage.tma_barrier),
+            cta_tma_load.partition_S(cScoord),
+            cta_tma_load.partition_D(Shm)
+        );
     }
-    cluster_sync();
+    __syncthreads();
+    Barrier::wait(&shared_storage.tma_barrier, /*phase=*/0);
+
+    __syncthreads();
+    tma_store_fence();
     if (warp_idx == 0 && lane_predicate) {
-        ProducerBarType::arrive_and_expect_tx(&shared_storage.tma_barrier, tma_transaction_bytes);
-        copy(tma_load.with(shared_storage.tma_barrier), tSgS(_), tSsS(_));
+        Tensor gDcoord  = tma_store.get_tma_tensor(make_shape(m, n));
+        Tensor cDcoord  = local_tile(gDcoord, Tile<Int<TileM>, Int<TileN>>{}, make_coord(blockIdx.x, blockIdx.y));
+        auto cta_tma_store = tma_store.get_slice(0);
+        copy(
+            tma_store,
+            cta_tma_store.partition_S(Shm),
+            cta_tma_store.partition_D(cDcoord)
+        );
     }
-    ProducerBarType::wait(&shared_storage.tma_barrier, /*phase=*/0);
 }
 
 int main() {
@@ -81,21 +95,20 @@ int main() {
     thrust::device_vector<type> dS = hS;
     thrust::device_vector<type> dD(m * n);
 
-    Tensor mS = make_tensor(thrust::raw_pointer_cast(dS.data()), make_shape(m, n), make_stride(n, 1));
-    SmemLayout sS;
-    Copy_Atom tma_load = make_tma_atom(SM90_TMA_LOAD{}, mS, sS, Shape<Int<TileM>, Int<TileN>>{});
+    Tensor gS = make_tensor(thrust::raw_pointer_cast(dS.data()), make_shape(m, n), make_stride(n, 1));
+    auto tma_load = make_tma_copy(SM90_TMA_LOAD{}, gS, SmemLayout{});
+    Tensor gD = make_tensor(thrust::raw_pointer_cast(dD.data()), make_shape(m, n), make_stride(n, 1));
+    auto tma_store = make_tma_copy(SM90_TMA_STORE{}, gD, SmemLayout{});
 
-    dim3 block(16, 16);
+    dim3 block(256);
     dim3 grid(ceil_div(m, TileM), ceil_div(n, TileN));
 
     std::cout << "Launching Copy kernel with grid: (" << grid.x << ", " << grid.y
               << "), block: " << block.x << std::endl;
     std::cout << "Tile sizes: M=" << TileM << ", N=" << TileN << std::endl;
 
-    copy_kernel<<<grid, block>>>(
-        tma_load,
-        thrust::raw_pointer_cast(dS.data()), 
-        thrust::raw_pointer_cast(dD.data()), 
+    copy_kernel<decltype(tma_load), decltype(tma_store)><<<grid, block>>>(
+        tma_load, tma_store,
         m, n
     );
 
@@ -106,7 +119,7 @@ int main() {
     }
     else {
         std::cerr << "Failed!" << std::endl;
-        return 0;
+        return 1;
     }
 
     return 0;

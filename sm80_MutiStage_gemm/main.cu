@@ -34,7 +34,7 @@ namespace traits {
     constexpr int PM = 1 * EURepeatM * get<0>(mma_atom_shape{});
     constexpr int PN = 2 * EURepeatN * get<1>(mma_atom_shape{});
     constexpr int PK = 1 * EURepeatK * get<2>(mma_atom_shape{});
-    static_assert((TileM + TileN) * (TileK + Stage) >= PM * PN * 2);
+    static_assert(TileM >= PM && TileN >= PN);
 
     using MMA = decltype(make_tiled_mma(
         mma_atom{},
@@ -64,14 +64,14 @@ namespace traits {
         MMA{}
     ));
 
-    using R2SCopyAtomC    = Copy_Atom<UniversalCopy<int>, type>;
+    using r2s_copy_atom   = Copy_Atom<UniversalCopy<int>, type>;
     using R2SCopyC        = decltype(make_tiled_copy_C(
-        R2SCopyAtomC{},
+        r2s_copy_atom{},
         MMA{}
     ));
-    using S2GCopyAtomC    = Copy_Atom<UniversalCopy<uint128_t>, type>;
+    using s2g_copy_atom   = Copy_Atom<UniversalCopy<uint128_t>, type>;
     using S2GCopyC        = decltype(make_tiled_copy(
-        S2GCopyAtomC{},
+        s2g_copy_atom{},
         make_layout(Shape<_32, _4>{}, Stride<_4, _1>{}),
         make_layout(Shape<_1, _8>{})
     ));
@@ -93,10 +93,11 @@ namespace traits {
     using SmemLayoutC = decltype(tile_to_shape(
         composition(
             Swizzle<3, 3, 3>{}, 
-            make_layout(Shape<Int<PM>, Int<PN>>{}, Stride<Int<PN>, _1>{})
+            make_layout(Shape<Int<TileM>, Int<TileN>>{}, Stride<Int<TileN>, _1>{})
         ),
-        Shape<Int<PM>, Int<PN>, _2>{}
+        Shape<Int<TileM>, Int<TileN>, _2>{}
     ));
+    static_assert(cosize_v<SmemLayoutA> + cosize_v<SmemLayoutB> >= cosize_v<SmemLayoutC>);
 }
 
 __global__ void gemm_kernel(
@@ -278,9 +279,9 @@ int main() {
                 float b = static_cast<float>(hB[j * k + t]);
                 sum += a * b;
             }
-            float expected = static_cast<float>(hC[i * n + j]);
-            if (std::abs(sum - expected) > 10) {
-                std::cerr << "Expect " << expected << " at [" << i << "," << j << "], but get " << sum << ".\n";
+            float c = static_cast<float>(hC[i * n + j]);
+            if (std::abs(sum - c) > 5) {
+                std::cerr << "Expect " << sum << " at [" << i << "," << j << "], but get " << c << ".\n";
                 return 0;
             }
         }
