@@ -228,9 +228,9 @@ __global__ void gemm_kernel(
 
 int main() {
     using namespace traits;
-    const int m = 2048;
-    const int n = 2048;
-    const int k = 2048;
+    const int m = 4096;
+    const int n = 4096;
+    const int k = 4096;
 
     thrust::host_vector<type> hA(m * k);
     thrust::host_vector<type> hB(n * k);
@@ -243,7 +243,7 @@ int main() {
 
     thrust::device_vector<type> dA = hA;
     thrust::device_vector<type> dB = hB;
-    thrust::device_vector<type> dC(m * n, type(0));
+    thrust::device_vector<type> dC(m * n, type(0)), ref_dC(m * n, type(0));
 
     dim3 block(cute::size(MMA{}));
     dim3 grid(ceil_div(m, TileM), ceil_div(n, TileN));
@@ -268,25 +268,43 @@ int main() {
 
     CUTE_CHECK_ERROR(cudaDeviceSynchronize());
 
-    thrust::host_vector<type> hC = dC;
+    std::cout << "Compare with reference result..." << std::endl;
 
-    std::cout << "Computing reference CPU result..." << std::endl;
+    cublasHandle_t handle;
+    cublasStatus_t custatus = cublasCreate(&handle);
+    if (custatus != CUBLAS_STATUS_SUCCESS) {
+        std::cerr << "cuBLAS initialization failed!" << std::endl;
+        return 1;
+    }
+    float alpha = 1.0f;
+    float beta  = 0.0f;
+    cublasGemmEx(
+        handle, 
+        CUBLAS_OP_T,   
+        CUBLAS_OP_N,   
+        n, m, k, 
+        &alpha, 
+        thrust::raw_pointer_cast(dB.data()), CUDA_R_16F, k,
+        thrust::raw_pointer_cast(dA.data()), CUDA_R_16F, k,
+        &beta, 
+        thrust::raw_pointer_cast(ref_dC.data()), CUDA_R_16F, n,
+        CUBLAS_COMPUTE_32F, 
+        CUBLAS_GEMM_DEFAULT_TENSOR_OP
+    );
+    CUTE_CHECK_ERROR(cudaDeviceSynchronize());
+
+    thrust::host_vector<type> hC = dC, ref_hC = ref_dC;
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            float sum = 0.0f;
-            for (int t = 0; t < k; ++t) {
-                float a = static_cast<float>(hA[i * k + t]);
-                float b = static_cast<float>(hB[j * k + t]);
-                sum += a * b;
-            }
-            float c = static_cast<float>(hC[i * n + j]);
-            if (std::abs(sum - c) > 5) {
-                std::cerr << "Expect " << sum << " at [" << i << "," << j << "], but get " << c << ".\n";
+            float ref = static_cast<float>(ref_hC[i * n + j]);
+            float res = static_cast<float>(hC[i * n + j]);
+            if (std::fabs(ref - res) > 10) {
+                std::cerr << "Expect " << ref << " at [" << i << "," << j << "], but get " << res << ".\n";
                 return 0;
             }
         }
     }
-    std::cout << "SUCCESS: GPU results match CPU reference!" << std::endl;
+    std::cout << "SUCCESS: GPU results match cuBLAS reference!" << std::endl;
 
     using namespace utility;
     TIMING("CUTE::GEMM", config<loop<5>>) {
@@ -298,25 +316,17 @@ int main() {
         );
     }
 
-    cublasHandle_t handle;
-    cublasStatus_t status = cublasCreate(&handle);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        std::cerr << "cuBLAS initialization failed!" << std::endl;
-        return 1;
-    }
-    float alpha = 1.0f;
-    float beta  = 0.0f;
     TIMING("CUBLAS::GEMM", config<loop<5>>) {
         cublasGemmEx(
             handle, 
             CUBLAS_OP_T,   
             CUBLAS_OP_N,   
-            m, n, k, 
+            n, m, k, 
             &alpha, 
-            thrust::raw_pointer_cast(dA.data()), CUDA_R_16F, k,
             thrust::raw_pointer_cast(dB.data()), CUDA_R_16F, k,
+            thrust::raw_pointer_cast(dA.data()), CUDA_R_16F, k,
             &beta, 
-            thrust::raw_pointer_cast(dC.data()), CUDA_R_16F, m,
+            thrust::raw_pointer_cast(dC.data()), CUDA_R_16F, n,
             CUBLAS_COMPUTE_32F, 
             CUBLAS_GEMM_DEFAULT_TENSOR_OP
         );
