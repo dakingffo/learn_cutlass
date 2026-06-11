@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "sm90_WgmmaTma_gemm",
+		"source" : "sm90_WgmmaTma_gemm"
+	}
+}

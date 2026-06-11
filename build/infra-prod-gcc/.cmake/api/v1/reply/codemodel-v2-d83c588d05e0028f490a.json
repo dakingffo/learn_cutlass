@@ -1,0 +1,214 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					],
+					"jsonFile" : "directory-.-Release-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"build" : "cutlass_example",
+					"jsonFile" : "directory-cutlass_example-Release-779d410038b8042b3598.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "cutlass_example",
+					"targetIndexes" : 
+					[
+						0
+					]
+				},
+				{
+					"build" : "simple_copy",
+					"jsonFile" : "directory-simple_copy-Release-62e052f1db708ec2dde9.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "simple_copy",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "tma_copy",
+					"jsonFile" : "directory-tma_copy-Release-ae1fc0e1f276a7312818.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "tma_copy",
+					"targetIndexes" : 
+					[
+						5
+					]
+				},
+				{
+					"build" : "simple_gemm",
+					"jsonFile" : "directory-simple_gemm-Release-02cb9c4f1d29d36e614d.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "simple_gemm",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "sm89_PipeLine_gemm",
+					"jsonFile" : "directory-sm89_PipeLine_gemm-Release-6e0c2cd569be797d8adc.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "sm89_PipeLine_gemm",
+					"targetIndexes" : 
+					[
+						3
+					]
+				},
+				{
+					"build" : "sm90_WgmmaTma_gemm",
+					"jsonFile" : "directory-sm90_WgmmaTma_gemm-Release-9116d35b4007e8300361.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "sm90_WgmmaTma_gemm",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "sm90_SPMCPipe_gemm",
+					"jsonFile" : "directory-sm90_SPMCPipe_gemm-Release-ba169de612e8f45a6c45.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "sm90_SPMCPipe_gemm"
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					],
+					"name" : "learn_cutlass",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 1,
+					"id" : "example_wgmma_tma_sm90::@1dd808306585cd0345aa",
+					"jsonFile" : "target-example_wgmma_tma_sm90-Release-a1f051e5f7a63a97537a.json",
+					"name" : "example_wgmma_tma_sm90",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "simple_copy::@f5879a6d0b5505338a67",
+					"jsonFile" : "target-simple_copy-Release-e1678fd023ebf4f496b5.json",
+					"name" : "simple_copy",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "simple_gemm::@09b67052f873dbde1aaf",
+					"jsonFile" : "target-simple_gemm-Release-f88840689ad5ee0bda01.json",
+					"name" : "simple_gemm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "sm89_PipeLine_gemm::@ba701b551e82f27b5c9d",
+					"jsonFile" : "target-sm89_PipeLine_gemm-Release-a314056b67eeb64e2acb.json",
+					"name" : "sm89_PipeLine_gemm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "sm90_WgmmaTma_gemm::@723943870c7f6a4d035e",
+					"jsonFile" : "target-sm90_WgmmaTma_gemm-Release-1e1ac1ad0d286a1235f6.json",
+					"name" : "sm90_WgmmaTma_gemm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "tma_copy::@b8e7ee28a2068c18bf59",
+					"jsonFile" : "target-tma_copy-Release-c4de341d4f121abfbc56.json",
+					"name" : "tma_copy",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/daking/PROJECT/learn_cutlass/build/infra-prod-gcc",
+		"source" : "/home/daking/PROJECT/learn_cutlass"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

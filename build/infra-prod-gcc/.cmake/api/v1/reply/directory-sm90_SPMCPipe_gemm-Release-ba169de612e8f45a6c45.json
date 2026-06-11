@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "sm90_SPMCPipe_gemm",
+		"source" : "sm90_SPMCPipe_gemm"
+	}
+}
